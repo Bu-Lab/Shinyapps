@@ -1,0 +1,135 @@
+####READY TO GO LIVEEEE####################
+
+options(stringsAsFactors = F)
+library(shiny)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(data.table)
+
+
+#Loading data
+
+# AllGene <- read.delim("Shue_transposed_APOE_TR_CQN_RPKM.txt", sep = " ", header = T)
+
+
+con <- file("Shue_transposed_APOE_TR_CQN_RPKM.txt","r")
+header <- read.table(text = gsub(" ", ",", (readLines(con,n=1))),sep = ',',header = F, stringsAsFactors = F)
+availgenes <- as.character(header[10:19129])
+
+close(con)
+
+
+#Function for SEM Bars
+data_summary <- function(data, varname, groupnames) {
+  require(plyr)
+  summary_func <- function(x, col) {
+    c(mean = mean(x[[col]], na.rm = TRUE),
+      sd = sd(x[[col]], na.rm = TRUE))
+  }
+  data_sum <- ddply(data, groupnames, .fun = summary_func,
+                    varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  return(data_sum)
+}
+
+#Define UI
+require(shiny)
+
+ui <- fluidPage(
+  titlePanel("Bu Lab RPKM Database Search"),
+  sidebarLayout(position = "right",
+                sidebarPanel(
+                  #("RPKM Search Bar"),
+                  # textInput("gene", "Gene of Interest", "Xkr4")),
+                  selectizeInput(
+                    "gene",'RPKM Search Bar', choices = availgenes, multiple = FALSE, options = list(maxItems = 1),
+                  )),  
+                # Output: Description, lineplot, and reference
+                mainPanel(
+                  textOutput('caption'),
+                  plotOutput(outputId = "geneplot")
+                )
+  )
+)
+
+# Define server function
+
+server <- function(input, output) {
+  
+  #Interface input to graphing code,
+  #gene <- input$Gene
+  
+  dataInput <- reactive({ 
+    req(input$gene)
+    
+    colClasses=as.character(input$gene)
+    # colClasses="Xkr4"
+    AllGene = fread("Shue_transposed_APOE_TR_CQN_RPKM.txt", select = c("ID","Genotype","Age","Sex","RIN","Date_of_harvest","Coverage","BIC_batch","Flowcell",colClasses), sep = " ", header = T)
+    AllGene$Age <- as.factor(AllGene$Age)
+    # availgenes <- names(AllGene)[10:19129] 
+    
+    
+    
+    #Subsetting Data
+    smallerdf <- subset(AllGene, select = c('Genotype', 'Age', input$gene, 'Sex'))
+    subset(AllGene, select = c('Genotype', 'Age', input$gene, 'Sex'))
+    
+    df <- data_summary(smallerdf,
+                       varname = input$gene,
+                       groupnames = c("Age", "Genotype"))
+    names(df) <- c('Age', 'Genotype', 'RPKM', 'sd')
+    df2 <- merge(smallerdf, df, by = c("Age", "Genotype"))
+    df2
+  })
+  
+  #output$caption <- renderText({
+  #input$Gene})
+  #gene <- datasetInput()
+  
+  #Create plot 
+  output$geneplot <- renderPlot({ 
+    
+    #gene <- 'Xkr4' 
+    #gene <- datasetInput()
+    df2 <- dataInput()
+    
+    ggplot(df2, aes(x = Age, y = RPKM, fill = Genotype)) +
+      geom_bar(stat = "identity",
+               position = position_dodge(),
+               #width = 1,
+               color = 'black') +
+      geom_errorbar(aes(ymin = RPKM - sd, ymax = RPKM + sd),
+                    width = .3,
+                    position = position_dodge(.9)) +
+      ggtitle(paste0(input$gene, ' Expression')) +
+      scale_fill_manual(values = c("APOE2" = "white", "APOE3" = "Grey", "APOE4" = "black")) +
+      geom_point(
+        data = df2,
+        aes(
+          x = Age,
+          group = Genotype,
+          y = get(input$gene),
+          color = Sex
+        ),
+        position = position_jitterdodge(
+          jitter.width = 0.1,
+          dodge.width = 0.9,
+        ),
+        
+      ) +
+      scale_color_manual(values = c("red", "blue")) +
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+            panel.background = element_blank(), axis.line = element_line(colour = "black"))
+    
+    
+    
+    
+    
+  }
+  
+  )
+}
+# Create Shiny object
+shinyApp(ui = ui, server = server)
+
